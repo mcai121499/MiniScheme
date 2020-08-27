@@ -1,0 +1,56 @@
+#lang racket
+(require "envE.rkt")
+(require "parseH.rkt")
+
+(provide eval-exp apply-proc apply-primitive-op)
+
+
+(define eval-exp
+  (lambda (tree env)
+    (cond
+      [(lit-exp? tree) (lit-exp-num tree)]
+      [(var-ref? tree) (unbox (lookup env (var-ref-symbol tree)))]
+      [(app-exp? tree) (apply-proc (eval-exp (app-exp-proc tree) env) (map (lambda (t) (eval-exp t env)) (app-exp-args tree)))]
+      [(if-exp? tree) (if (or (eq? (eval-exp (if-exp-cond tree) env) 0) (eq? (eval-exp (if-exp-cond tree) env) 'False)) (eval-exp (if-exp-f tree) env) (eval-exp (if-exp-t tree) env))]
+      [(let-exp? tree) (eval-exp (let-exp-body tree)
+                                 (extended-env  (let-exp-syms tree)
+                                               (map (lambda (t) (eval-exp t env)) (let-exp-vals tree)) env))]
+      [(lambda-exp? tree) (new-closure (get-lambda-params tree) (get-lambda-exp tree) env)]
+      [(assign-exp? tree) (set-box! (lookup env (get-assign-symbol tree)) (eval-exp (get-assign-value tree) env))]
+      [(begin-exp? tree) (eval-multexps (cadr tree) env)]
+      [else (error 'eval-exp "Invalid tree:~s" tree)])))
+
+(define eval-multexps
+  (lambda (input env)
+    (cond
+      [(null? (cdr input)) (eval-exp (car input) env)]
+      [else (begin (eval-exp (car input) env) (eval-multexps (cdr input) env))]))) 
+
+
+(define apply-proc (lambda (p arg-values)
+                     (cond
+                       [(prim-proc? p) (apply-primitive-op (prim-proc-symbol? p) arg-values)]
+                       [(closure? p) (eval-exp (closure-body p) (extended-env (closure-params p) arg-values (closure-env p)))]
+                       [else (error 'apply-proc "Bad procedure: ~s" p)])))
+
+
+
+(define apply-primitive-op (lambda (op arg-values)
+                             (cond
+                               [(eq? op '+)(+ (car arg-values) (cadr arg-values))]
+                               [(eq? op '-)(- (car arg-values) (cadr arg-values))]
+                               [(eq? op '*)(* (car arg-values) (cadr arg-values))]
+                               [(eq? op '/)(/ (car arg-values) (cadr arg-values))]
+                               [(equal? op 'add1) (+ 1 (car arg-values))]
+                               [(equal? op 'sub1) (- (car arg-values) 1)]
+                               [(equal? op 'minus) (* (car arg-values) -1)]
+                               [(equal? op 'list) arg-values]
+                               [(equal? op 'build) (cons (car arg-values) (cadr arg-values))]
+                               [(equal? op 'first) (car (car arg-values))]
+                               [(equal? op 'rest) (cdr (car arg-values))]
+                               [(equal? op 'empty?) (if (eq? '() (car arg-values)) 'True 'False)]
+                               [(equal? op 'equals?) (if (eqv? (car arg-values) (cadr arg-values)) 'True 'False)]
+                               [(equal? op 'lt?) (if (< (car arg-values) (cadr arg-values)) 'True 'False)]
+                               [(equal? op 'gt?) (if (> (car arg-values) (cadr arg-values)) 'True 'False)]
+                               [(equal? op 'leq?) (if (<= (car arg-values) (cadr arg-values)) 'True 'False)]
+                               [(equal? op 'geq?) (if (>= (car arg-values) (cadr arg-values)) 'True 'False)])))
